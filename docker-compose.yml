@@ -1,0 +1,278 @@
+services:
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - devmateriels-network
+
+  # Kafka Message Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      - devmateriels-network
+    healthcheck:
+      test: [ "CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # PostgreSQL for Planning Service
+  db-planning:
+    image: postgres:15-alpine
+    container_name: db-planning
+    environment:
+      POSTGRES_DB: planning_db
+      POSTGRES_USER: planning_user
+      POSTGRES_PASSWORD: planning_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - planning-data:/var/lib/postgresql/data
+      - ./planning-service/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - devmateriels-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U planning_user -d planning_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for Devis Service
+  db-devis:
+    image: postgres:15-alpine
+    container_name: db-devis
+    environment:
+      POSTGRES_DB: devis_db
+      POSTGRES_USER: devis_user
+      POSTGRES_PASSWORD: devis_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - devis-data:/var/lib/postgresql/data
+      - ./devis-service/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - devmateriels-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U devis_user -d devis_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for Notification Service
+  db-notification:
+    image: postgres:15-alpine
+    container_name: db-notification
+    environment:
+      POSTGRES_DB: notification_db
+      POSTGRES_USER: notification_user
+      POSTGRES_PASSWORD: notification_pass
+    ports:
+      - "5434:5432"
+    volumes:
+      - notification-data:/var/lib/postgresql/data
+      - ./notification-service/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - devmateriels-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U notification_user -d notification_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for ERP WagonLits
+  db-erp-wagonlits:
+    image: postgres:15-alpine
+    container_name: db-erp-wagonlits
+    environment:
+      POSTGRES_DB: erp_wagonlits_db
+      POSTGRES_USER: erp_wagonlits_user
+      POSTGRES_PASSWORD: erp_wagonlits_pass
+    ports:
+      - "5435:5432"
+    volumes:
+      - erp-wagonlits-data:/var/lib/postgresql/data
+      - ./erp-wagonlits/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - devmateriels-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U erp_wagonlits_user -d erp_wagonlits_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for ERP DevMateriels
+  db-erp-devmateriels:
+    image: postgres:15-alpine
+    container_name: db-erp-devmateriels
+    environment:
+      POSTGRES_DB: erp_devmateriels_db
+      POSTGRES_USER: erp_devmateriels_user
+      POSTGRES_PASSWORD: erp_devmateriels_pass
+    ports:
+      - "5436:5432"
+    volumes:
+      - erp-devmateriels-data:/var/lib/postgresql/data
+      - ./erp-devmateriels/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - devmateriels-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U erp_devmateriels_user -d erp_devmateriels_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: api-gateway
+    ports:
+      - "8000:5000"
+    environment:
+      - FLASK_ENV=development
+      - PLANNING_SERVICE_URL=http://planning-service:5001
+      - DEVIS_SERVICE_URL=http://devis-service:5002
+      - NOTIFICATION_SERVICE_URL=http://notification-service:5003
+    depends_on:
+      - planning-service
+      - devis-service
+      - notification-service
+    networks:
+      - devmateriels-network
+
+  # Planning Service
+  planning-service:
+    build:
+      context: .
+      dockerfile: planning-service/Dockerfile
+    container_name: planning-service
+    ports:
+      - "5001:5001"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://planning_user:planning_pass@db-planning:5432/planning_db
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      db-planning:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - devmateriels-network
+
+  # Devis Service
+  devis-service:
+    build:
+      context: .
+      dockerfile: devis-service/Dockerfile
+    container_name: devis-service
+    ports:
+      - "5002:5002"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://devis_user:devis_pass@db-devis:5432/devis_db
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      db-devis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - devmateriels-network
+
+  # Notification Service
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: notification-service
+    ports:
+      - "5003:5003"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://notification_user:notification_pass@db-notification:5432/notification_db
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - ERP_WAGONLITS_URL=http://erp-wagonlits:5010
+      - ERP_DEVMATERIELS_URL=http://erp-devmateriels:5011
+    depends_on:
+      db-notification:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      erp-wagonlits:
+        condition: service_started
+      erp-devmateriels:
+        condition: service_started
+    networks:
+      - devmateriels-network
+
+  # ERP WagonLits Simulation
+  erp-wagonlits:
+    build:
+      context: ./erp-wagonlits
+      dockerfile: Dockerfile
+    container_name: erp-wagonlits
+    ports:
+      - "5010:5010"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://erp_wagonlits_user:erp_wagonlits_pass@db-erp-wagonlits:5432/erp_wagonlits_db
+      - API_GATEWAY_URL=http://api-gateway:5000
+    depends_on:
+      db-erp-wagonlits:
+        condition: service_healthy
+    networks:
+      - devmateriels-network
+
+  # ERP DevMateriels Simulation
+  erp-devmateriels:
+    build:
+      context: ./erp-devmateriels
+      dockerfile: Dockerfile
+    container_name: erp-devmateriels
+    ports:
+      - "5011:5011"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://erp_devmateriels_user:erp_devmateriels_pass@db-erp-devmateriels:5432/erp_devmateriels_db
+    depends_on:
+      db-erp-devmateriels:
+        condition: service_healthy
+    networks:
+      - devmateriels-network
+
+networks:
+  devmateriels-network:
+    driver: bridge
+
+volumes:
+  planning-data:
+  devis-data:
+  notification-data:
+  erp-wagonlits-data:
+  erp-devmateriels-data:
