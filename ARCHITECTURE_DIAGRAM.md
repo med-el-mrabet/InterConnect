@@ -4,53 +4,66 @@
 
 ```mermaid
 flowchart TB
-    subgraph CLIENTS["🏢 Clients Externes"]
-        WL["ERP WagonLits<br/>:5010"]
-        CW["ERP ConstructWagons"]
+    subgraph CLIENTS["Clients Externes"]
+        WL["ERP WagonLits"]
     end
 
-    subgraph GATEWAY["🚪 Point d'Entrée"]
-        API["API Gateway<br/>:8000"]
+    subgraph GATEWAY["Point d'Entrée"]
+        API["API Gateway"]
     end
 
-    subgraph MICROSERVICES["⚙️ Microservices DevMateriels"]
-        PS["Planning Service<br/>:5001"]
-        DS["Devis Service<br/>:5002"]
-        NS["Notification Service<br/>:5003"]
+    subgraph MICROSERVICES["Microservices DevMateriels"]
+        PS["Planning Service"]
+        DS["Devis Service"]
+        NS["Notification Service"]
+        FS["Facture Service"]
+        CS["Commande Service"]
+
     end
 
-    subgraph DATABASES["💾 Bases de Données PostgreSQL"]
-        DB_PS[("db-planning<br/>:5432")]
-        DB_DS[("db-devis<br/>:5433")]
-        DB_NS[("db-notification<br/>:5434")]
-        DB_WL[("db-erp-wagonlits<br/>:5435")]
-        DB_DM[("db-erp-devmateriels<br/>:5436")]
+    subgraph DATABASES["Bases de Données Services"]
+        DB_PS[("db-planning")]
+        DB_DS[("db-devis")]
+        DB_NS[("db-notification")]
+        DB_FS[("db-facture")]
+        DB_CS[("db-commande")]
+    end
+        DB_WL[("db-erp-wagonlits")]
+        DB_DM[("db-erp-devmateriels")]
+    subgraph MESSAGING["Messagerie Asynchrone"]
+        ZK["Zookeeper"]
+        KF["Kafka"]
     end
 
-    subgraph MESSAGING["📨 Messagerie Asynchrone"]
-        ZK["Zookeeper<br/>:2181"]
-        KF["Kafka<br/>:9093"]
-    end
-
-    subgraph ERP_INTERNAL["🏭 ERP Interne"]
-        DEMAT["ERP DevMateriels<br/>:5011"]
+    subgraph ERP_INTERNAL["ERP Interne"]
+        DEMAT["ERP DevMateriels"]
     end
 
     %% Communications HTTP
     WL -->|"HTTP POST<br/>/api/inspection/request"| API
     API -->|"HTTP"| PS
     API -->|"HTTP"| DS
+    API --> |"HTTP"| FS
+    API --> |"HTTP"| CS
+    DEMAT -->|"HTTP POST<br/>/api/inspection/request"| API
+
 
     %% Microservices vers leurs BDD
     PS -.->|"SQL"| DB_PS
     DS -.->|"SQL"| DB_DS
     NS -.->|"SQL"| DB_NS
+    FS -.->|"SQL"| DB_FS
+    CS -.->|"SQL"| DB_CS
+
 
     %% Kafka
-    PS -->|"Kafka Publish<br/>inspection.scheduled"| KF
-    DS -->|"Kafka Publish<br/>devis.validated"| KF
+    PS -->|"Kafka Publish"| KF
+    DS -->|"Kafka Publish"| KF
     KF -->|"Kafka Consume"| NS
-    ZK -.->|"Coordination"| KF
+    FS -->|"Kafka Publish"| KF
+    CS -->|"Kafka Publish"| KF
+    ZK -->|"Coordination"| KF
+
 
     %% Webhooks
     NS ==>|"🔔 WEBHOOK<br/>HTTP POST"| WL
@@ -59,6 +72,7 @@ flowchart TB
     %% ERPs vers leurs BDD
     WL -.->|"SQL"| DB_WL
     DEMAT -.->|"SQL"| DB_DM
+
 
     %% Styling
     classDef gateway fill:#ff9800,stroke:#e65100,color:#000

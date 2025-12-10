@@ -33,3 +33,5 @@ Thumbs.db
 
 # Volumes (for local development)
 data/
+
+PRESENTATION_GUIDE.md
